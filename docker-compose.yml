@@ -1,0 +1,28 @@
+services:
+  # 火山引擎图像生成 API 中转服务
+  doubao-seedream:
+    build: .
+    container_name: doubao-seedream-proxy
+    ports:
+      - "10001:10001"  # 主机 10001 端口 -> 容器 10001 端口
+    environment:
+      - PORT=10001  # 服务端口（默认 10001）
+    restart: always  # 容器退出时自动重启
+    networks:
+      - lianwusuoai-network  # 连接到全局网络，实现 Docker 内部通信
+    # 健康检查（可选，确保服务正常运行）
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:10001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./data/logs:/var/log  # 日志数据本地化存储
+      - ./data/app:/app/data  # 应用数据本地化存储
+
+# 声明使用外部网络（与其他 Docker 服务共享）
+networks:
+  lianwusuoai-network:
+    name: lianwusuoai-network  # 强制指定网络名称，确保能找到已存在的网络
+    external: true  # 使用已存在的外部网络
