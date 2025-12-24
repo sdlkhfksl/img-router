@@ -30,14 +30,13 @@ import {
 
 // ================= 配置常量 =================
 
-const VOLC_API_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations";
-const GITEE_API_URL = "https://ai.gitee.com/v1/images/generations";
-const GITEE_DEFAULT_MODEL = "z-image-turbo";
-const MODELSCOPE_API_URL = "https://api-inference.modelscope.cn/v1";
-const MODELSCOPE_DEFAULT_MODEL = "Tongyi-MAI/Z-Image-Turbo";
-const PORT = parseInt(Deno.env.get("PORT") || "10001");
-// 统一超时时间：120秒（适用于所有渠道的 API 请求）
-const API_TIMEOUT_MS = 120000;
+import {
+  VolcEngineConfig,
+  GiteeConfig,
+  ModelScopeConfig,
+  API_TIMEOUT_MS,
+  PORT,
+} from "./config.ts";
 
 // ================= 类型定义 =================
 
@@ -166,7 +165,10 @@ async function handleVolcEngine(
   // 记录输入图片
   logInputImages("VolcEngine", requestId, images);
   
-  const model = reqBody.model || "doubao-seedream-4-0-250828";
+  // 使用配置中的默认模型，支持多模型
+  const model = reqBody.model && VolcEngineConfig.supportedModels.includes(reqBody.model)
+    ? reqBody.model
+    : VolcEngineConfig.defaultModel;
   const size = reqBody.size || "4096x4096";
   
   // 记录生成开始
@@ -183,7 +185,7 @@ async function handleVolcEngine(
     watermark: false,
   };
 
-  const response = await fetchWithTimeout(VOLC_API_URL, {
+  const response = await fetchWithTimeout(VolcEngineConfig.apiUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -228,7 +230,10 @@ async function handleGitee(
   // 记录完整 Prompt
   logFullPrompt("Gitee", requestId, prompt);
   
-  const model = reqBody.model?.includes("z-image") ? reqBody.model : GITEE_DEFAULT_MODEL;
+  // 使用配置中的默认模型，支持多模型
+  const model = reqBody.model && GiteeConfig.supportedModels.includes(reqBody.model)
+    ? reqBody.model
+    : GiteeConfig.defaultModel;
   const size = reqBody.size || "2048x2048";
   
   // 记录生成开始
@@ -242,9 +247,9 @@ async function handleGitee(
     response_format: "url"
   };
 
-  debug("Gitee", `发送请求到: ${GITEE_API_URL}`);
+  debug("Gitee", `发送请求到: ${GiteeConfig.apiUrl}`);
 
-  const response = await fetchWithTimeout(GITEE_API_URL, {
+  const response = await fetchWithTimeout(GiteeConfig.apiUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -307,13 +312,16 @@ async function handleModelScope(
   // 记录完整 Prompt
   logFullPrompt("ModelScope", requestId, prompt);
   
-  const model = reqBody.model?.includes("Z-Image") ? reqBody.model : MODELSCOPE_DEFAULT_MODEL;
+  // 使用配置中的默认模型，支持多模型
+  const model = reqBody.model && ModelScopeConfig.supportedModels.includes(reqBody.model)
+    ? reqBody.model
+    : ModelScopeConfig.defaultModel;
   const size = reqBody.size || "2048x2048";
   
   // 记录生成开始
   logImageGenerationStart("ModelScope", requestId, model, size, prompt.length);
 
-  const submitResponse = await fetchWithTimeout(`${MODELSCOPE_API_URL}/images/generations`, {
+  const submitResponse = await fetchWithTimeout(`${ModelScopeConfig.apiUrl}/images/generations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -347,7 +355,7 @@ async function handleModelScope(
     await new Promise(resolve => setTimeout(resolve, 5000));
     pollingAttempts++;
 
-    const checkResponse = await fetchWithTimeout(`${MODELSCOPE_API_URL}/tasks/${taskId}`, {
+    const checkResponse = await fetchWithTimeout(`${ModelScopeConfig.apiUrl}/tasks/${taskId}`, {
       method: "GET",
       headers: {
         "Authorization": `Bearer ${apiKey}`,

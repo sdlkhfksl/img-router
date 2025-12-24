@@ -1,0 +1,38 @@
+# 日志和数据文件
+data/
+*.log
+logs/
+
+# 环境变量配置
+.env
+.env.*
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# Rooroo 工作目录
+.rooroo/
+
+# Docker Compose 覆盖配置（本地使用）
+docker-compose.override.yml
+
+# Node.js（如果未来添加）
+node_modules/
+npm-debug.log*
+
+# Deno（如果未来添加）
+deno.lock
+
+# Docker
+*.pid
+*.seed
+*.pid.lock
+
+.roomodes

@@ -6,6 +6,7 @@ WORKDIR /app
 
 # 复制应用代码
 COPY main.ts .
+COPY config.ts .
 COPY deno.json .
 COPY logger.ts .
 

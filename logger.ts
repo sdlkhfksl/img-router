@@ -76,7 +76,7 @@ export async function initLogger(): Promise<void> {
     // 目录可能已存在
   }
 
-  const logPath = `${config.logDir}/app-${new Date().toISOString().split("T")[0]}.log`;
+  const logPath = `${config.logDir}/${new Date().toISOString().split("T")[0]}.log`;
   
   try {
     logFile = await Deno.open(logPath, { create: true, append: true });
@@ -88,14 +88,16 @@ export async function initLogger(): Promise<void> {
   }
 }
 
-export async function closeLogger(): Promise<void> {
+export function closeLogger(): void {
   if (logFile) {
     try {
       const encoder = new TextEncoder();
       const sep = "\n" + "=".repeat(50) + "\n";
       logFile.writeSync(encoder.encode(`${sep}[${new Date().toISOString()}] 关闭${sep}`));
       logFile.close();
-    } catch {}
+    } catch {
+      // 忽略关闭错误
+    }
     logFile = null;
   }
 }
