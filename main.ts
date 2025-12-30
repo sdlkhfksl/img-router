@@ -1500,6 +1500,16 @@ Deno.addSignalListener("SIGINT", async () => {
   Deno.exit(0);
 });
 
+// Windows 不支持 SIGTERM，仅在非 Windows 系统上监听
+// 感谢 @johnnyee 在 PR #3 中提出的修复方案
+if (Deno.build.os !== "windows") {
+  Deno.addSignalListener("SIGTERM", async () => {
+    info("Startup", "收到 SIGTERM, 关闭服务...");
+    await closeLogger();
+    Deno.exit(0);
+  });
+}
+
 Deno.serve({ port: PORT }, (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
