@@ -46,29 +46,38 @@ export const VolcEngineConfig: ProviderConfig = {
   ],
 };
 
-// Gitee（模力方舟）配置 - 支持同步 API 和图片编辑
+// Gitee（模力方舟）配置 - 支持文生图、图片编辑、图片编辑（异步）
 export interface GiteeProviderConfig {
-  apiUrl: string;           // 同步文生图 API
-  editApiUrl: string;       // 同步图片编辑 API
-  defaultModel: string;     // 文生图默认模型
-  defaultEditModel: string; // 图片编辑默认模型
-  defaultSize: string;      // 文生图默认尺寸
-  defaultEditSize: string;  // 图片编辑默认尺寸
+  apiUrl: string;                // 文生图 API
+  editApiUrl: string;            // 图片编辑 API（同步）
+  asyncEditApiUrl: string;       // 图片编辑 API（异步）
+  taskStatusUrl: string;         // 异步任务状态查询 API
+  defaultModel: string;          // 文生图默认模型
+  defaultEditModel: string;      // 图片编辑默认模型
+  defaultAsyncEditModel: string; // 图片编辑（异步）默认模型
+  defaultSize: string;           // 文生图默认尺寸
+  defaultEditSize: string;       // 图片编辑默认尺寸
+  defaultAsyncEditSize: string;  // 图片编辑（异步）默认尺寸
   supportedModels: string[];
-  editModels: string[];     // 支持图片编辑的模型
+  editModels: string[];          // 图片编辑支持的模型
+  asyncEditModels: string[];     // 图片编辑（异步）支持的模型
 }
 
 export const GiteeConfig: GiteeProviderConfig = {
   apiUrl: "https://ai.gitee.com/v1/images/generations",
   editApiUrl: "https://ai.gitee.com/v1/images/edits",
+  asyncEditApiUrl: "https://ai.gitee.com/v1/async/images/edits",
+  taskStatusUrl: "https://ai.gitee.com/v1/task",
   defaultModel: "z-image-turbo",
-  defaultEditModel: "Qwen-Image-Edit",  // 通义千问图片编辑模型
-  defaultSize: "2048x2048",     // 文生图默认尺寸
-  defaultEditSize: "1024x1024", // 图片编辑默认尺寸
+  defaultEditModel: "Qwen-Image-Edit",       // 图片编辑默认模型
+  defaultAsyncEditModel: "Qwen-Image-Edit-2511", // 图片编辑（异步）默认模型
+  defaultSize: "2048x2048",        // 文生图默认尺寸
+  defaultEditSize: "1024x1024",    // 图片编辑默认尺寸
+  defaultAsyncEditSize: "2048x2048", // 图片编辑（异步）
   supportedModels: [
     "z-image-turbo",
   ],
-  // 图片编辑
+  // 图片编辑（同步）
   editModels: [
     "Qwen-Image-Edit",      // 默认
     "HiDream-E1-Full",
@@ -82,6 +91,12 @@ export const GiteeConfig: GiteeProviderConfig = {
     "DreamO",
     "LongCat-Image-Edit",
     "AnimeSharp",
+  ],
+  // 图片编辑（异步）
+  asyncEditModels: [
+    "Qwen-Image-Edit-2511", // 默认
+    "LongCat-Image-Edit",
+    "FLUX.1-Kontext-dev",
   ],
 };
 

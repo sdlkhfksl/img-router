@@ -408,16 +408,23 @@ async function handleVolcEngine(
  * 【文生图】纯文字生成图片
  *   - API：GiteeConfig.apiUrl (同步 API)
  *   - 默认尺寸：GiteeConfig.defaultSize (2048x2048)
- *   - 支持模型：Qwen-Image-Edit-2511
+ *   - 支持模型：z-image-turbo
  *   - 返回格式：Base64 嵌入（永久有效）
  *
- * 【图片编辑】参考图片 + 文字编辑图片
+ * 【图片编辑】参考图片 + 文字编辑图片（同步）
  *   - API：GiteeConfig.editApiUrl (同步图片编辑 API)
  *   - 默认尺寸：GiteeConfig.defaultEditSize (1024x1024)
- *   - 支持模型：Qwen-Image-Edit-2511
+ *   - 支持模型：Qwen-Image-Edit 等
  *   - 输入格式：multipart/form-data，图片自动转换为 Base64
  *   - 返回格式：Base64 嵌入（永久有效）
- *   - 注意：图片编辑模型对尺寸有限制，仅支持 1024x1024
+ *
+ * 【图片编辑（异步）】参考图片 + 文字编辑图片（异步轮询）
+ *   - API：GiteeConfig.asyncEditApiUrl (异步图片编辑 API)
+ *   - 默认尺寸：GiteeConfig.defaultAsyncEditSize (2048x2048)
+ *   - 支持模型：Qwen-Image-Edit-2511, LongCat-Image-Edit, FLUX.1-Kontext-dev
+ *   - 输入格式：multipart/form-data
+ *   - 返回格式：URL（1天有效），自动转换为 Base64 嵌入
+ *   - 轮询间隔：10秒，最大等待：30分钟
  */
 async function handleGitee(
   apiKey: string,
@@ -441,93 +448,191 @@ async function handleGitee(
   const size = reqBody.size || (hasImages ? GiteeConfig.defaultEditSize : GiteeConfig.defaultSize);
 
   if (hasImages) {
-    // ========== 图片编辑模式（同步 API）==========
-    // 选择编辑模型
-    const model = reqBody.model && GiteeConfig.editModels.includes(reqBody.model)
-      ? reqBody.model
-      : GiteeConfig.editModels[0]; // 默认使用第一个编辑模型
+    // 根据模型判断使用同步还是异步图片编辑 API
+    const isAsyncModel = reqBody.model && GiteeConfig.asyncEditModels.includes(reqBody.model);
     
-    logImageGenerationStart("Gitee", requestId, model, size, prompt.length);
-    info("Gitee", `使用图片编辑模式, 模型: ${model}, 图片数量: ${images.length}`);
-
-    // 构建 multipart/form-data 请求
-    const formData = new FormData();
-    formData.append("model", model);
-    formData.append("prompt", prompt || "");
-    formData.append("size", GiteeConfig.defaultEditSize); // 使用配置中的图片编辑尺寸
-    formData.append("n", "1");
-    formData.append("response_format", "b64_json"); // 使用 Base64 返回
-
-    // 处理所有图片输入
-    for (let i = 0; i < images.length; i++) {
-      const imageInput = images[i];
-      let base64Data: string;
-      let mimeType: string;
+    if (isAsyncModel) {
+      // ========== 图片编辑（异步）模式 ==========
+      const model = reqBody.model as string;
+      const asyncSize = GiteeConfig.defaultAsyncEditSize;
       
-      if (imageInput.startsWith("data:image/")) {
-        // 已经是 Base64 格式，直接提取
-        base64Data = imageInput.split(",")[1];
-        mimeType = imageInput.split(";")[0].split(":")[1];
-        info("Gitee", `图片${i + 1}已是 Base64 格式`);
-      } else {
-        // URL 格式：下载并转换为 Base64
-        info("Gitee", `正在下载图片${i + 1}并转换为 Base64...`);
-        const downloaded = await urlToBase64(imageInput);
-        base64Data = downloaded.base64;
-        mimeType = downloaded.mimeType;
-        info("Gitee", `图片${i + 1}下载完成, MIME: ${mimeType}, 大小: ${Math.round(base64Data.length / 1024)}KB`);
+      logImageGenerationStart("Gitee", requestId, model, asyncSize, prompt.length);
+      info("Gitee", `使用图片编辑（异步）模式, 模型: ${model}, 图片数量: ${images.length}`);
+
+      const formData = new FormData();
+      formData.append("model", model);
+      formData.append("prompt", prompt || "");
+      formData.append("size", asyncSize);
+      formData.append("n", "1");
+      formData.append("response_format", "url");
+
+      // 处理图片输入
+      for (let i = 0; i < images.length; i++) {
+        const imageInput = images[i];
+        let base64Data: string;
+        let mimeType: string;
+        
+        if (imageInput.startsWith("data:image/")) {
+          base64Data = imageInput.split(",")[1];
+          mimeType = imageInput.split(";")[0].split(":")[1];
+        } else {
+          const downloaded = await urlToBase64(imageInput);
+          base64Data = downloaded.base64;
+          mimeType = downloaded.mimeType;
+        }
+
+        const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+        const blob = new Blob([binaryData], { type: mimeType });
+        formData.append("image", blob, `image_${i + 1}.png`);
       }
 
-      // 将 Base64 转换为 Blob 并添加到 FormData
-      const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-      const blob = new Blob([binaryData], { type: mimeType });
-      formData.append("image", blob, `image_${i + 1}.png`);
-    }
+      // 提交异步任务
+      const submitResponse = await fetchWithTimeout(GiteeConfig.asyncEditApiUrl, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${apiKey}` },
+        body: formData,
+      });
 
-    debug("Gitee", `发送图片编辑请求到: ${GiteeConfig.editApiUrl}`);
+      if (!submitResponse.ok) {
+        const errorText = await submitResponse.text();
+        error("Gitee", `图片编辑（异步）API 错误: ${submitResponse.status}`);
+        logImageGenerationFailed("Gitee", requestId, errorText);
+        logApiCallEnd("Gitee", apiType, false, Date.now() - startTime);
+        throw new Error(`Gitee Async Edit API Error (${submitResponse.status}): ${errorText}`);
+      }
 
-    const response = await fetchWithTimeout(GiteeConfig.editApiUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: formData,
-    });
+      const submitData = await submitResponse.json();
+      const taskId = submitData.task_id;
+      if (!taskId) throw new Error("Gitee 异步任务提交失败：未返回 task_id");
+      
+      info("Gitee", `异步任务已提交, Task ID: ${taskId}`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      const err = new Error(`Gitee Edit API Error (${response.status}): ${errorText}`);
-      error("Gitee", `图片编辑 API 错误: ${response.status}`);
-      logImageGenerationFailed("Gitee", requestId, errorText);
+      // 轮询任务状态（10秒间隔，最大30分钟）
+      const maxAttempts = 180;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        
+        const statusResponse = await fetchWithTimeout(`${GiteeConfig.taskStatusUrl}/${taskId}`, {
+          method: "GET",
+          headers: { "Authorization": `Bearer ${apiKey}` },
+        });
+
+        if (!statusResponse.ok) continue;
+
+        const statusData = await statusResponse.json();
+        const status = statusData.status;
+
+        if (status === "success") {
+          const output = statusData.output;
+          const duration = Date.now() - startTime;
+          let result: string;
+          
+          if (output?.file_url) {
+            try {
+              const { base64, mimeType } = await urlToBase64(output.file_url);
+              result = `![Generated Image](data:${mimeType};base64,${base64})`;
+            } catch {
+              result = `![Generated Image](${output.file_url})`;
+            }
+          } else if (output?.b64_json) {
+            result = `![Generated Image](data:image/png;base64,${output.b64_json})`;
+          } else {
+            throw new Error("Gitee 异步任务成功但无图片数据");
+          }
+
+          logImageGenerationComplete("Gitee", requestId, 1, duration);
+          logApiCallEnd("Gitee", apiType, true, duration);
+          return result;
+          
+        } else if (status === "failure" || status === "cancelled") {
+          logImageGenerationFailed("Gitee", requestId, status);
+          logApiCallEnd("Gitee", apiType, false, Date.now() - startTime);
+          throw new Error(`Gitee 异步任务${status === "failure" ? "失败" : "已取消"}`);
+        }
+      }
+
+      logImageGenerationFailed("Gitee", requestId, "任务超时");
       logApiCallEnd("Gitee", apiType, false, Date.now() - startTime);
-      throw err;
-    }
+      throw new Error("Gitee 异步任务超时");
+      
+    } else {
+      // ========== 图片编辑模式（同步 API）==========
+      const model = reqBody.model && GiteeConfig.editModels.includes(reqBody.model)
+        ? reqBody.model
+        : GiteeConfig.editModels[0];
+      
+      logImageGenerationStart("Gitee", requestId, model, size, prompt.length);
+      info("Gitee", `使用图片编辑模式, 模型: ${model}, 图片数量: ${images.length}`);
 
-    // 同步 API 直接返回结果
-    const data = await response.json();
-    const imageData = data.data || [];
-    
-    if (!imageData || imageData.length === 0) {
-      throw new Error("Gitee 返回数据为空");
-    }
+      const formData = new FormData();
+      formData.append("model", model);
+      formData.append("prompt", prompt || "");
+      formData.append("size", GiteeConfig.defaultEditSize);
+      formData.append("n", "1");
+      formData.append("response_format", "b64_json");
 
-    logGeneratedImages("Gitee", requestId, imageData);
-    
-    const duration = Date.now() - startTime;
-    logImageGenerationComplete("Gitee", requestId, imageData.length, duration);
+      for (let i = 0; i < images.length; i++) {
+        const imageInput = images[i];
+        let base64Data: string;
+        let mimeType: string;
+        
+        if (imageInput.startsWith("data:image/")) {
+          base64Data = imageInput.split(",")[1];
+          mimeType = imageInput.split(";")[0].split(":")[1];
+          info("Gitee", `图片${i + 1}已是 Base64 格式`);
+        } else {
+          info("Gitee", `正在下载图片${i + 1}并转换为 Base64...`);
+          const downloaded = await urlToBase64(imageInput);
+          base64Data = downloaded.base64;
+          mimeType = downloaded.mimeType;
+          info("Gitee", `图片${i + 1}下载完成, MIME: ${mimeType}, 大小: ${Math.round(base64Data.length / 1024)}KB`);
+        }
 
-    // 构建返回结果（优先使用 Base64 嵌入）
-    const results = imageData.map((img: { url?: string; b64_json?: string }) => {
-      if (img.b64_json) {
-        return `![Generated Image](data:image/png;base64,${img.b64_json})`;
-      } else if (img.url) {
-        return `![Generated Image](${img.url})`;
+        const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+        const blob = new Blob([binaryData], { type: mimeType });
+        formData.append("image", blob, `image_${i + 1}.png`);
       }
-      return "";
-    }).filter(Boolean);
 
-    logApiCallEnd("Gitee", apiType, true, duration);
-    return results.join("\n\n") || "图片生成失败";
+      debug("Gitee", `发送图片编辑请求到: ${GiteeConfig.editApiUrl}`);
+
+      const response = await fetchWithTimeout(GiteeConfig.editApiUrl, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${apiKey}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        error("Gitee", `图片编辑 API 错误: ${response.status}`);
+        logImageGenerationFailed("Gitee", requestId, errorText);
+        logApiCallEnd("Gitee", apiType, false, Date.now() - startTime);
+        throw new Error(`Gitee Edit API Error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      const imageData = data.data || [];
+      
+      if (!imageData || imageData.length === 0) {
+        throw new Error("Gitee 返回数据为空");
+      }
+
+      logGeneratedImages("Gitee", requestId, imageData);
+      
+      const duration = Date.now() - startTime;
+      logImageGenerationComplete("Gitee", requestId, imageData.length, duration);
+
+      const results = imageData.map((img: { url?: string; b64_json?: string }) => {
+        if (img.b64_json) {
+          return `![Generated Image](data:image/png;base64,${img.b64_json})`;
+        } else if (img.url) {
+          return `![Generated Image](${img.url})`;
+        }
+        return "";
+      }).filter(Boolean);
+
+      logApiCallEnd("Gitee", apiType, true, duration);
+      return results.join("\n\n") || "图片生成失败";
+    }
     
   } else {
     // 文生图模式（同步 API）
