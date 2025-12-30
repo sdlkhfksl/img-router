@@ -53,7 +53,7 @@ export interface GiteeProviderConfig {
   defaultModel: string;     // 文生图默认模型
   defaultEditModel: string; // 图片编辑默认模型
   defaultSize: string;      // 文生图默认尺寸
-  defaultEditSize: string;  // 图生图默认尺寸
+  defaultEditSize: string;  // 图片编辑默认尺寸
   supportedModels: string[];
   editModels: string[];     // 支持图片编辑的模型
 }
@@ -64,17 +64,24 @@ export const GiteeConfig: GiteeProviderConfig = {
   defaultModel: "z-image-turbo",
   defaultEditModel: "Qwen-Image-Edit",  // 通义千问图片编辑模型
   defaultSize: "2048x2048",     // 文生图默认尺寸
-  defaultEditSize: "1024x1024", // 图生图默认尺寸
+  defaultEditSize: "1024x1024", // 图片编辑默认尺寸
   supportedModels: [
     "z-image-turbo",
   ],
+  // 图片编辑
   editModels: [
-    "Qwen-Image-Edit",  // 默认，支持图片合成/P图
+    "Qwen-Image-Edit",      // 默认
     "HiDream-E1-Full",
     "FLUX.1-dev",
+    "FLUX.2-dev",
+    "FLUX.1-Kontext-dev",
     "HelloMeme",
     "Kolors",
     "OmniConsistency",
+    "InstantCharacter",
+    "DreamO",
+    "LongCat-Image-Edit",
+    "AnimeSharp",
   ],
 };
 

@@ -74,71 +74,41 @@ function detectProvider(apiKey: string): Provider {
 
 function extractPromptAndImages(messages: Message[]): { prompt: string; images: string[] } {
   let prompt = "";
-  const currentImages: string[] = [];
-  let lastUserIndex = -1;
+  const images: string[] = [];
 
+  // 只从最后一条用户消息中提取 prompt 和图片（不追溯历史）
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === "user") {
-      lastUserIndex = i;
       const userContent = messages[i].content;
       if (typeof userContent === "string") {
         prompt = userContent;
-        // 修复：从当前消息的字符串内容中提取 Markdown 格式的图片
+        // 从字符串内容中提取 Markdown 格式的图片
         const matches = userContent.matchAll(/!\[.*?\]\(((?:https?:\/\/|data:image\/)[^\)]+)\)/g);
         for (const match of matches) {
-          currentImages.push(match[1]);
+          images.push(match[1]);
         }
       } else if (Array.isArray(userContent)) {
         const textItem = userContent.find((item: MessageContentItem) => item.type === "text") as TextContentItem | undefined;
         prompt = textItem?.text || "";
+        // 从 text 中提取 Markdown 格式的图片
         if (prompt) {
           const matches = prompt.matchAll(/!\[.*?\]\(((?:https?:\/\/|data:image\/)[^\)]+)\)/g);
           for (const match of matches) {
-            currentImages.push(match[1]);
+            images.push(match[1]);
           }
         }
-        
+        // 提取 image_url 类型的图片
         const imgs = userContent
           .filter((item: MessageContentItem): item is ImageUrlContentItem => item.type === "image_url")
           .map((item: ImageUrlContentItem) => item.image_url?.url || "")
           .filter(Boolean);
-        currentImages.push(...imgs);
+        images.push(...imgs);
       }
       break;
     }
   }
 
-  // 追溯历史图片（上下文关联与多图融合）
-  const historicalImages: string[] = [];
-  if (lastUserIndex !== -1) {
-    for (let i = lastUserIndex - 1; i >= 0; i--) {
-      const content = messages[i].content;
-      let foundInMsg: string[] = [];
-      
-      if (typeof content === "string") {
-        const matches = content.matchAll(/!\[.*?\]\(((?:https?:\/\/|data:image\/)[^\)]+)\)/g);
-        for (const match of matches) {
-          foundInMsg.push(match[1]);
-        }
-      } else if (Array.isArray(content)) {
-        foundInMsg = content
-          .filter((item: MessageContentItem): item is ImageUrlContentItem => item.type === "image_url")
-          .map((item: ImageUrlContentItem) => item.image_url?.url || "")
-          .filter(Boolean);
-      }
-      
-      if (foundInMsg.length > 0) {
-        historicalImages.push(...foundInMsg);
-        debug("Router", `发现历史参考图: ${foundInMsg.length}张`);
-        break;
-      }
-    }
-  }
-
-  // 历史图片在前，本次图片在后
-  const finalImages = [...historicalImages, ...currentImages];
-
-  return { prompt, images: finalImages };
+  return { prompt, images };
 }
 
 /** 校验 URL 是否安全（防 SSRF） */
@@ -441,7 +411,7 @@ async function handleVolcEngine(
  *   - 支持模型：Qwen-Image-Edit-2511
  *   - 返回格式：Base64 嵌入（永久有效）
  *
- * 【图生图】参考图片 + 文字生成图片
+ * 【图片编辑】参考图片 + 文字编辑图片
  *   - API：GiteeConfig.editApiUrl (同步图片编辑 API)
  *   - 默认尺寸：GiteeConfig.defaultEditSize (1024x1024)
  *   - 支持模型：Qwen-Image-Edit-2511
@@ -467,7 +437,7 @@ async function handleGitee(
     logInputImages("Gitee", requestId, images);
   }
 
-  // 文生图和图生图使用不同的默认尺寸
+  // 文生图和图片编辑使用不同的默认尺寸
   const size = reqBody.size || (hasImages ? GiteeConfig.defaultEditSize : GiteeConfig.defaultSize);
 
   if (hasImages) {
@@ -478,39 +448,41 @@ async function handleGitee(
       : GiteeConfig.editModels[0]; // 默认使用第一个编辑模型
     
     logImageGenerationStart("Gitee", requestId, model, size, prompt.length);
-    info("Gitee", `使用图片编辑模式, 模型: ${model}`);
-
-    // 处理图片输入：统一转换为 Base64 格式
-    const imageInput = images[0];
-    let base64Data: string;
-    let mimeType: string;
-    
-    if (imageInput.startsWith("data:image/")) {
-      // 已经是 Base64 格式，直接提取
-      base64Data = imageInput.split(",")[1];
-      mimeType = imageInput.split(";")[0].split(":")[1];
-      info("Gitee", "输入图片已是 Base64 格式");
-    } else {
-      // URL 格式：下载并转换为 Base64
-      info("Gitee", `正在下载图片并转换为 Base64: ${imageInput.substring(0, 50)}...`);
-      const downloaded = await urlToBase64(imageInput);
-      base64Data = downloaded.base64;
-      mimeType = downloaded.mimeType;
-      info("Gitee", `图片下载完成, MIME: ${mimeType}, 大小: ${Math.round(base64Data.length / 1024)}KB`);
-    }
-
-    // 将 Base64 转换为 Blob
-    const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-    const blob = new Blob([binaryData], { type: mimeType });
+    info("Gitee", `使用图片编辑模式, 模型: ${model}, 图片数量: ${images.length}`);
 
     // 构建 multipart/form-data 请求
     const formData = new FormData();
     formData.append("model", model);
     formData.append("prompt", prompt || "");
-    formData.append("size", GiteeConfig.defaultEditSize); // 使用配置中的图生图尺寸
+    formData.append("size", GiteeConfig.defaultEditSize); // 使用配置中的图片编辑尺寸
     formData.append("n", "1");
     formData.append("response_format", "b64_json"); // 使用 Base64 返回
-    formData.append("image", blob, "image.png");
+
+    // 处理所有图片输入
+    for (let i = 0; i < images.length; i++) {
+      const imageInput = images[i];
+      let base64Data: string;
+      let mimeType: string;
+      
+      if (imageInput.startsWith("data:image/")) {
+        // 已经是 Base64 格式，直接提取
+        base64Data = imageInput.split(",")[1];
+        mimeType = imageInput.split(";")[0].split(":")[1];
+        info("Gitee", `图片${i + 1}已是 Base64 格式`);
+      } else {
+        // URL 格式：下载并转换为 Base64
+        info("Gitee", `正在下载图片${i + 1}并转换为 Base64...`);
+        const downloaded = await urlToBase64(imageInput);
+        base64Data = downloaded.base64;
+        mimeType = downloaded.mimeType;
+        info("Gitee", `图片${i + 1}下载完成, MIME: ${mimeType}, 大小: ${Math.round(base64Data.length / 1024)}KB`);
+      }
+
+      // 将 Base64 转换为 Blob 并添加到 FormData
+      const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+      const blob = new Blob([binaryData], { type: mimeType });
+      formData.append("image", blob, `image_${i + 1}.png`);
+    }
 
     debug("Gitee", `发送图片编辑请求到: ${GiteeConfig.editApiUrl}`);
 
