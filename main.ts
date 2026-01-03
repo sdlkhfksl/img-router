@@ -13,6 +13,7 @@ import {
 import {
   VolcEngineConfig, GiteeConfig, ModelScopeConfig, HuggingFaceConfig,
   ImageBedConfig, API_TIMEOUT_MS, PORT,
+  ENABLE_ACCESS_CONTROL, ACCESS_KEYS,
 } from "./config.ts";
 
 type Provider = "VolcEngine" | "Gitee" | "ModelScope" | "HuggingFace" | "Unknown";
