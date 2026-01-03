@@ -1,0 +1,17 @@
+.git
+.gitignore
+.github
+.vscode
+.rooroo
+.roomodes
+node_modules
+*.log
+*.md
+LICENSE
+data
+dist
+coverage
+.env
+.env.*
+*.test.ts
+*.spec.ts
