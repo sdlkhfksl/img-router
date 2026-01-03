@@ -1334,14 +1334,24 @@ async function handleChatCompletions(req: Request): Promise<Response> {
 
   const authHeader = req.headers.get("Authorization");
   const apiKey = authHeader?.replace("Bearer ", "").trim();
-  
+
   if (!apiKey) {
     warn("HTTP", "Authorization header 缺失");
     await logRequestEnd(requestId, req.method, url.pathname, 401, 0, "missing auth");
-    return new Response(JSON.stringify({ error: "Authorization header missing" }), { 
-      status: 401, 
-      headers: { "Content-Type": "application/json" } 
-    });
+    return new Response(JSON.stringify({ error: "Authorization header missing" }),
+      { status: 401, headers: { "Content-Type": "application/json" } });
+  }
+
+  // 访问控制验证
+  if (ENABLE_ACCESS_CONTROL) {
+    const accessKey = req.headers.get("X-Access-Key");
+    if (!accessKey || !ACCESS_KEYS.includes(accessKey)) {
+      warn("HTTP", "访问密钥验证失败");
+      await logRequestEnd(requestId, req.method, url.pathname, 403, 0, "invalid access key");
+      return new Response(JSON.stringify({ error: "Access denied. Invalid or missing X-Access-Key header." }),
+        { status: 403, headers: { "Content-Type": "application/json" } });
+    }
+    info("HTTP", `访问密钥验证通过: ${accessKey.substring(0, 8)}...`);
   }
 
   const provider = detectProvider(apiKey);
@@ -1516,7 +1526,7 @@ Deno.serve({ port: PORT }, (req: Request) => {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Access-Key",
         "Access-Control-Max-Age": "86400",
       }
     });

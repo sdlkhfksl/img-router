@@ -167,3 +167,11 @@ export const API_TIMEOUT_MS = 300000;
 
 // 服务端口
 export const PORT = parseInt(Deno.env.get("PORT") || "10001");
+
+// ================= 访问控制配置 =================
+// 是否启用访问控制（启用后需要提供有效的访问密钥才能使用服务）
+export const ENABLE_ACCESS_CONTROL = Deno.env.get("ENABLE_ACCESS_CONTROL") === "true";
+
+// 允许的访问密钥列表（多个密钥用逗号分隔）
+// 客户端需要在请求头中添加: X-Access-Key: 你的访问密钥
+export const ACCESS_KEYS = Deno.env.get("ACCESS_KEYS")?.split(",") || [];
